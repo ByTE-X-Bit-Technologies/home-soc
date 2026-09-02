@@ -1,0 +1,78 @@
+# ============================================================================
+# home-soc triage — example configuration
+# Copy this file to config.yaml and fill in YOUR network's values.
+# Nothing here is real — these are placeholders. The triage engine reads
+# config.yaml at runtime, so no network details are ever hardcoded in the code.
+# ============================================================================
+
+# --- Your network segments (by role). Used for topology-aware triage. ---
+# List each VLAN/subnet and a friendly label. RFC1918 ranges = "internal".
+segments:
+  "192.168.10.0/24": "Main"
+  "192.168.20.0/24": "Kids"
+  "192.168.30.0/24": "Gaming"
+  "192.168.40.0/24": "IoT"
+  # add/rename to match YOUR network
+
+# --- Crown-jewel assets. Traffic TOWARD these elevates (possible lateral movement). ---
+# Put YOUR critical systems here — SIEM, domain controller, gateway, anything
+# an attacker moving laterally would target. These are examples; replace them.
+crown_jewels:
+  "192.168.10.10": "SIEM / SOC core"
+  "192.168.10.11": "domain controller"
+  "192.168.10.1":  "gateway"
+  "192.168.10.12": "DNS server"
+
+# --- Data sources: where the triage engine reads findings from. ---
+elasticsearch:
+  url: "https://YOUR-ELASTIC-HOST:9200"
+  user: "elastic"
+  # Put the password in an env var or a secrets file, NOT here.
+  password_env: "ELASTIC_PASS"
+
+wazuh:
+  indexer_url: "https://YOUR-WAZUH-HOST:9200"
+  user: "admin"
+  password_env: "WAZUH_PASS"
+
+# --- Local LLM (for alert enrichment). Runs on YOUR hardware; data stays local. ---
+llm:
+  # Ollama endpoint on your GPU host (or CPU host at Tier 1).
+  primary_url: "http://YOUR-LLM-HOST:11434"
+  model: "qwen2.5:14b"          # pick a model your GPU can run (12GB → 14b is comfortable)
+  # optional fallback if the primary is down:
+  fallback_url: ""
+  fallback_model: ""
+  timeout_seconds: 120
+  # Guardrail: the LLM may raise concern but NEVER silence a crown-jewel/threat alert.
+  enable_enrichment: true
+
+# --- Alerting: where elevated (tier-2) findings go. ---
+alerting:
+  # A chat webhook (Discord/Slack/etc). Put the actual URL in a file the code reads,
+  # e.g. a .webhook file — do NOT commit the real URL to your repo.
+  webhook_file: ".webhook"
+  # only these tiers send a real-time alert; everything else goes to the review queue
+  alert_on_tiers: [2]
+
+# --- Triage tuning (sensible home defaults; tune for your network). ---
+tuning:
+  # beacon detection thresholds (coefficient of variation; lower = more regular)
+  beacon_interval_cv_max: 0.25
+  beacon_size_cv_max: 0.30
+  beacon_min_connections: 8
+  # how far back the beacon scan looks
+  beacon_lookback: "7d"
+
+# --- Scheduling ---
+schedule:
+  # how often the runner processes new findings (minutes)
+  runner_interval_min: 15
+  # watchdog: alert if the runner hasn't checked in within this window (minutes)
+  watchdog_stale_min: 50
+  # remediation report cadence
+  remediation_cron: "0 6 * * 1"   # weekly, Monday 6am
+
+# --- Known-noise signatures to auto-dismiss (add your network's noise here) ---
+# The engine ships with a sensible default set; extend it as you learn YOUR noise.
+extra_noise_signatures: []

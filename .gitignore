@@ -1,0 +1,16 @@
+# secrets & local config — NEVER commit these
+config.yaml
+.webhook
+.webhook_*
+*.env
+.env
+secrets/
+# local state
+*.db
+*.log
+.triage_watermark
+.triage_heartbeat
+.watchdog_*
+.kev_cache.json
+__pycache__/
+*.pyc
