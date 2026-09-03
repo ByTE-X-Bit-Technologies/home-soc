@@ -39,7 +39,7 @@ def main():
         # runner has never run — that's a problem if the system's supposed to be live
         if not os.path.exists(ALERT_STATE):
             _send("⚠️ **[BXB WATCHDOG] Triage runner has NEVER run** — no watermark file. "
-                  "Monitoring may be OFFLINE. Check the triage cron on bxb-analyst.")
+                  "Monitoring may be OFFLINE. Check the triage cron on your SOC host.")
             open(ALERT_STATE, "w").write(str(now))
         return
 
