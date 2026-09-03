@@ -18,6 +18,90 @@ Read the [architecture series](#) for the *why* behind every design decision her
 | `triage_dashboard.py` | pushes tier-1/2 findings into your review dashboard. |
 | `triage_remediation.py` | CISA-KEV-ranked remediation reports from Wazuh vuln data. |
 
+## How the system runs (the full picture)
+
+The seven modules form one pipeline. Data flows in from your open-source sensors and out to you only
+when something earns your attention:
+
+```
+  Sensors (Suricata / Zeek / Wazuh)  →  Elasticsearch
+                                              │
+                                    triage_runner (every 15m)
+                                              │  pulls new findings
+                                     triage_engine.classify()
+                                     (topology + signature → tier)
+                    ┌─────────────────────────┼───────────────────────────┐
+                  Tier 0                     Tier 1                       Tier 2
+                auto-dismiss            review queue                   ELEVATE
+               (audit row,            (dashboard card,          triage_enrich (local LLM)
+                never shown)           never pings)              writes assessment + action
+                                            │                          │  guardrailed
+                                     triage_dashboard  ←───────────────┤  (never silences a
+                                     (feedback loop:                    │   crown-jewel/threat)
+                                      mark FALSE POSITIVE                │
+                                      → suppressed next time)       real-time alert (chat)
+
+  triage_beacon (scheduled)  →  scans Zeek conn logs for C2-style regularity → feeds findings in
+  triage_remediation (weekly) →  Wazuh vulns × CISA KEV → ranked "patch this first" report
+  triage_watchdog (every 15m, offset) →  watches the runner's heartbeat; alerts if it goes silent
+```
+
+**The principle:** you are hands-off unless something is genuinely wrong. Tier 0 (the overwhelming
+majority) is handled silently. Only Tier 2 is allowed to interrupt you — and when it does, the LLM has
+already written you a plain-English briefing. If the whole thing goes quiet, the watchdog tells you —
+because silence must never be mistaken for "all clear."
+
+## Scheduling (cron)
+
+The system is designed to run unattended on a schedule. An example crontab (adjust paths to your
+install):
+
+```cron
+# Triage runner — pull, classify, route. Every 15 minutes.
+*/15 * * * * cd /path/to/triage && /usr/bin/python3 triage_runner.py >> triage.log 2>&1
+
+# Watchdog — dead-man's-switch. Every 15 min, OFFSET from the runner so it checks between runs.
+7,22,37,52 * * * * cd /path/to/triage && /usr/bin/python3 triage_watchdog.py >> watchdog.log 2>&1
+
+# Remediation report — Wazuh vulns × CISA KEV, ranked. Weekly (Monday 6am).
+0 6 * * 1 cd /path/to/triage && /usr/bin/python3 triage_remediation.py >> remediation.log 2>&1
+
+# Beacon scan — statistical C2 detection over Zeek conn logs. Daily is plenty.
+30 5 * * * cd /path/to/triage && /usr/bin/python3 triage_beacon.py >> beacon.log 2>&1
+```
+
+The watchdog runs **independently** of the runner (its own cron line) on purpose: if they shared a
+process and it died, they'd both go silent together. Separate schedules mean the watchdog survives the
+runner's failure and can report it.
+
+## First-run sequence (do this in order)
+
+1. **Configure** — `cp config.example.yaml config.yaml`, fill in your segments, crown-jewels, data
+   sources. Set secrets as env vars / the webhook file (see Setup above).
+2. **Dry-run** — `python3 triage_runner.py --dry-run`. It classifies and reports but writes and sends
+   nothing. Look at the tier distribution: on a normal network it should be overwhelmingly Tier 0, a
+   little Tier 1, and few/zero Tier 2. If it's wildly off, tune the noise list and thresholds first.
+3. **Real run, alerting still off** — run it for real so it populates the review queue/dashboard, but
+   keep `ENABLE_DISCORD`/alerting off until you've watched the classifications look right on *your*
+   network for a bit.
+4. **Enable alerting** — only once you trust the Tier-2 calls. Now its first real ping is a real
+   finding, not a miscalibration.
+5. **Schedule everything** — add the cron lines above. Confirm the watchdog fires (you can simulate a
+   stale runner to test it).
+
+## Each module ↔ the architecture series
+
+If you want the *why* behind any piece, the flagship series covers it:
+
+| Module | Post |
+|---|---|
+| `triage_engine.py` | Building an AI SOC Analyst From Scratch (deterministic-first design) |
+| `triage_runner.py` + `triage_dashboard.py` | Making Alerts Actionable (tiering, the feedback loop) |
+| `triage_beacon.py` | Hunting C2 — Beacon Detection with Statistics and Zeek |
+| `triage_enrich.py` | Making Alerts Actionable (LLM enrichment + guardrails) |
+| `triage_remediation.py` | Remediation That Prioritizes What's Actually Being Exploited |
+| `triage_watchdog.py` | Who Watches the Watcher? Self-Monitoring |
+
 ## Setup
 
 1. **Configure it for your network.** Copy the example config and edit it:
