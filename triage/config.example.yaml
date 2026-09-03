@@ -1,78 +1,45 @@
-# ============================================================================
 # home-soc triage — example configuration
 # Copy this file to config.yaml and fill in YOUR network's values.
-# Nothing here is real — these are placeholders. The triage engine reads
-# config.yaml at runtime, so no network details are ever hardcoded in the code.
-# ============================================================================
+# Nothing here is real — these are placeholders. The engine reads config.yaml at import time,
+# so no network details are ever hardcoded in the code. config.yaml is gitignored.
 
-# --- Your network segments (by role). Used for topology-aware triage. ---
-# List each VLAN/subnet and a friendly label. RFC1918 ranges = "internal".
+# --- Your network segments (VLAN labels, for reporting) ---
 segments:
   "192.168.10.0/24": "Main"
-  "192.168.20.0/24": "Kids"
-  "192.168.30.0/24": "Gaming"
-  "192.168.40.0/24": "IoT"
-  # add/rename to match YOUR network
+  "192.168.20.0/24": "Guest"
+  "192.168.30.0/24": "IoT"
+  # add/rename to match your network
 
-# --- Crown-jewel assets. Traffic TOWARD these elevates (possible lateral movement). ---
-# Put YOUR critical systems here — SIEM, domain controller, gateway, anything
-# an attacker moving laterally would target. These are examples; replace them.
+# --- Crown-jewel assets: traffic TOWARD these ELEVATES (possible lateral movement / targeted attack) ---
+# Put YOUR critical systems here — SIEM, domain controller, gateway, network controller, etc.
 crown_jewels:
   "192.168.10.10": "SIEM / SOC core"
   "192.168.10.11": "domain controller"
   "192.168.10.1":  "gateway"
-  "192.168.10.12": "DNS server"
+  "192.168.10.12": "DNS"
 
-# --- Data sources: where the triage engine reads findings from. ---
-elasticsearch:
-  url: "https://YOUR-ELASTIC-HOST:9200"
-  user: "elastic"
-  # Put the password in an env var or a secrets file, NOT here.
-  password_env: "ELASTIC_PASS"
+# --- Known-benign management sources: infra that legitimately generates heavy internal traffic
+#     (a network controller polling gateways, a monitoring host, etc). The engine dismisses what
+#     these DO (their outbound management chatter to gateways / the internet) but NEVER what's done
+#     TO them — traffic toward a benign source that's also a crown-jewel still elevates. ---
+benign_mgmt_sources:
+  "192.168.10.20": "network controller — polls gateways/APs (normal management)"
 
-wazuh:
-  indexer_url: "https://YOUR-WAZUH-HOST:9200"
-  user: "admin"
-  password_env: "WAZUH_PASS"
+# --- Gateways the benign sources legitimately manage (their polling targets) ---
+benign_mgmt_gateways:
+  - "192.168.10.1"
+  - "192.168.20.1"
+  - "192.168.30.1"
 
-# --- Local LLM (for alert enrichment). Runs on YOUR hardware; data stays local. ---
-llm:
-  # Ollama endpoint on your GPU host (or CPU host at Tier 1).
-  primary_url: "http://YOUR-LLM-HOST:11434"
-  model: "qwen2.5:14b"          # pick a model your GPU can run (12GB → 14b is comfortable)
-  # optional fallback if the primary is down:
-  fallback_url: ""
-  fallback_model: ""
-  timeout_seconds: 120
-  # Guardrail: the LLM may raise concern but NEVER silence a crown-jewel/threat alert.
-  enable_enrichment: true
+# --- Optional: extend the built-in signature classification for your environment ---
+# The engine ships sensible defaults for noise / threat / edge-scanner / info signatures.
+# Add your own here if your network has noise the defaults don't cover.
+# signatures:
+#   extra_noise: []            # exact signature strings to auto-dismiss
+#   extra_noise_prefixes: []   # signature prefixes to treat as decoder noise
+#   extra_threat_markers: []   # substrings that mean "real threat" -> elevate
+#   extra_edge_markers: []     # substrings for edge scanners (firewall-dropped)
+#   extra_info_markers: []     # substrings for informational/benign signatures
 
-# --- Alerting: where elevated (tier-2) findings go. ---
-alerting:
-  # A chat webhook (Discord/Slack/etc). Put the actual URL in a file the code reads,
-  # e.g. a .webhook file — do NOT commit the real URL to your repo.
-  webhook_file: ".webhook"
-  # only these tiers send a real-time alert; everything else goes to the review queue
-  alert_on_tiers: [2]
-
-# --- Triage tuning (sensible home defaults; tune for your network). ---
-tuning:
-  # beacon detection thresholds (coefficient of variation; lower = more regular)
-  beacon_interval_cv_max: 0.25
-  beacon_size_cv_max: 0.30
-  beacon_min_connections: 8
-  # how far back the beacon scan looks
-  beacon_lookback: "7d"
-
-# --- Scheduling ---
-schedule:
-  # how often the runner processes new findings (minutes)
-  runner_interval_min: 15
-  # watchdog: alert if the runner hasn't checked in within this window (minutes)
-  watchdog_stale_min: 50
-  # remediation report cadence
-  remediation_cron: "0 6 * * 1"   # weekly, Monday 6am
-
-# --- Known-noise signatures to auto-dismiss (add your network's noise here) ---
-# The engine ships with a sensible default set; extend it as you learn YOUR noise.
-extra_noise_signatures: []
+# --- Optional: additional internal ranges beyond RFC1918 (rare) ---
+# extra_lan_nets: []
